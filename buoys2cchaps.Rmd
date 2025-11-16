@@ -1,0 +1,275 @@
+---
+title: "From Buoys to CCHaPS: Tracking the 40 Year trend of Extreme Waves on Australia’s East Coast"
+output: html_document
+date: "2025-11-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Analysis
+
+This is the workflow for data presented at [4th Wind Wave Symposium in Perth 2025](https://www.windwavessymposium.org/)
+
+```{r packages}
+require(terra)
+require(loopevd)
+```
+
+
+```{r read data plot map, fig.width=6, fig.height=10}
+OZ_buoys = vect("data/OZ_buoys.shp")
+
+QLD_am = as.data.frame( read.table("data/QLD_annMax.csv",header=TRUE,sep=","))
+names(QLD_am) = gsub("\\.","",names(QLD_am))
+names(QLD_am) = gsub("-","",names(QLD_am))
+
+NSW_am = as.data.frame(read.table("data/NSW_annMax.csv",header=TRUE,sep=","))
+QLD_years = QLD_am$year
+NSW_years = NSW_am$year
+
+QLD_am[QLD_years <= 1995,] = NA
+NSW_am[NSW_years <= 1985,] = NA
+
+QLD_am[QLD_years > 2024,] = NA
+NSW_am[NSW_years > 2024,] = NA
+
+
+usenames = c("cairns","townsville","mackay","haypoint","emupark","mooloolaba","brisbane",names(NSW_am))
+usenames = usenames[usenames!= "X" & usenames!= "year"]
+
+CCHaPS_am = as.data.frame(read.table("data/CCHaPS_annMax.csv",header=TRUE,sep=","))
+WHACS_am = as.data.frame(read.table("data/WHACS_annMax.csv",header=TRUE,sep=","))
+
+EC_buoys = vect(lapply(usenames,function(x) OZ_buoys[which(OZ_buoys$shortName == x)]))
+EC_buoys = EC_buoys[order(EC_buoys$Lat,decreasing = TRUE)]
+usenames = EC_buoys$shortName
+
+
+EC_am2 = cbind(as.data.frame(sapply(usenames[1:7], function(x) QLD_am[[x]][QLD_years >= NSW_years[1]])),
+              as.data.frame(sapply(usenames[8:14], function(x) NSW_am[[x]])))
+
+years = NSW_am$year
+years_CCHaPS = CCHaPS_am$year
+years_WHACS = WHACS_am$year
+
+CCHaPS_am2 = as.data.frame(sapply(usenames, function(x) CCHaPS_am[[x]]))
+WHACS_am2 = as.data.frame(sapply(usenames, function(x) WHACS_am[[x]]))
+
+#cbind(EC_buoys$shortName,names(EC_am2),names(CCHaPS_am2),names(WHACS_am2))
+
+#EC_am$year = NSW_am$year
+plot(OZ_buoys,ext = ext(buffer(EC_buoys,500000)),col = "darkgrey")
+points(EC_buoys,col = "blue")
+maps::map(add=TRUE)
+text(EC_buoys,"shortName",pos=1:4)
+
+
+```
+
+
+```{r}
+plot_empirical <- function (x, xns = NULL, unitz = "-", add=FALSE,...) 
+{
+    ndat = length(x)
+    empi_AEP = -1/log((1:ndat)/(ndat + 1))
+    if(!add) plot(empi_AEP, sort(x), col = 1, pch = 1, log = "x", xlab = "Average Recurrence Interval [years]", 
+        ylab = unitz, ...)
+    if(add) graphics::points(empi_AEP, sort(x),...)
+    if (!is.null(xns)) 
+        graphics::points(empi_AEP, sort(xns), col = "grey")
+    graphics::grid()
+}
+
+
+
+```
+
+```{r empirical ARI, fig.width=12, fig.height=10}
+i = 1
+par(mfrow = c(5,3),las=1,mar = c(2,4.5,2,1)+0.1)
+plot(1,1,col = NA,axes=FALSE,xlab = "",ylab = ""); legend("topleft",c("Buoy","CCHaPS","WHACS"),col = c("black","blue","red"),pch = 1)
+for(i in 1:14){
+  x = EC_am2[,i]
+  x = x[!is.na(x)]
+  plot_empirical(x,xlim = c(.4,100),main = paste0(EC_buoys$shortName[i]," n=",length(x)," depth=",round(EC_buoys$Depth_m[i])," [",round(EC_buoys$CCHaPSdept[i]),"m]"),ylim = c(1,9))
+  try(plot_empirical(CCHaPS_am2[,i],add=TRUE,col="blue"))
+  try(plot_empirical(WHACS_am2[,i],add=TRUE,col="red"))
+  
+}
+
+
+```
+
+```{r stationary EVD}
+nlocs = ncol(EC_am2)
+set.seed(2)
+obs_gev = as.data.frame(t(sapply(1:nlocs,function(x) loopevd::evd_params(EC_am2[,x][!is.na(EC_am2[,x])],"fgev"))))
+obs_gumbel = as.data.frame(t(sapply(1:nlocs,function(x) loopevd::evd_params(EC_am2[,x][!is.na(EC_am2[,x])],"fgumbel"))))
+obs_gumbelx = as.data.frame(t(sapply(1:nlocs,function(x) loopevd::evd_params(EC_am2[,x][!is.na(EC_am2[,x])],"fgumbelx"))))
+
+CCHaPS_gev = as.data.frame(t(sapply(1:nlocs,function(x) loopevd::evd_params(CCHaPS_am2[,x][!is.na(CCHaPS_am2[,x])],"fgev"))))
+CCHaPS_gumbel = as.data.frame(t(sapply(1:nlocs,function(x) loopevd::evd_params(CCHaPS_am2[,x][!is.na(CCHaPS_am2[,x])],"fgumbel"))))
+CCHaPS_gumbelx = as.data.frame(t(sapply(1:nlocs,function(x) loopevd::evd_params(CCHaPS_am2[,x][!is.na(CCHaPS_am2[,x])],"fgumbelx"))))
+
+WHACS_gev = as.data.frame(t(sapply(1:nlocs,function(x) loopevd::evd_params(WHACS_am2[,x][!is.na(CCHaPS_am2[,x])],"fgev"))))
+WHACS_gumbel = as.data.frame(t(sapply(1:nlocs,function(x) loopevd::evd_params(WHACS_am2[,x][!is.na(CCHaPS_am2[,x])],"fgumbel"))))
+WHACS_gumbelx = as.data.frame(t(sapply(1:nlocs,function(x) loopevd::evd_params(WHACS_am2[,x][!is.na(CCHaPS_am2[,x])],"fgumbelx"))))
+
+obs_gev$AIC2 = obs_gev$AIC;obs_gev$AIC2[obs_gev$shape <= 0] = Inf
+CCHaPS_gev$AIC2 = CCHaPS_gev$AIC;CCHaPS_gev$AIC2[CCHaPS_gev$shape <= 0] = Inf
+WHACS_gev$AIC2  = WHACS_gev$AIC; WHACS_gev$AIC2[WHACS_gev$shape <= 0] = Inf
+
+
+obs_ACS = apply(cbind(obs_gumbel$AIC,obs_gev$AIC2,obs_gumbelx$AIC),1,which.min)
+CCHaPS_ACS = apply(cbind(CCHaPS_gumbel$AIC,CCHaPS_gev$AIC2,CCHaPS_gumbelx$AIC),1,which.min)
+WHACS_ACS = apply(cbind(WHACS_gumbel$AIC,WHACS_gev$AIC2,WHACS_gumbelx$AIC),1,which.min)
+
+obs_ss = sign(obs_gev$shape)+2
+CCHaPS_ss = sign(CCHaPS_gev$shape)+2
+WHACS_ss = sign(WHACS_gev$shape)+2
+
+
+evds = c("Gumbel","GEV","Mixed Gumbel")
+signs = c("-","","+")
+data.frame(location = usenames,Buoy = paste(signs[obs_ss],evds[obs_ACS]), 
+           CCHaPS = paste(signs[CCHaPS_ss],evds[CCHaPS_ACS]),
+           WHACS = paste(signs[WHACS_ss],evds[WHACS_ACS]))
+
+```
+
+```{r parametric ARI, fig.width=12, fig.height=10}
+
+plot_EVD = function(i){
+  x = EC_am2[,i]
+  x = x[!is.na(x)]
+  plot_empirical(x,xlim = c(.4,100),main = paste0(EC_buoys$shortName[i]," n=",length(x)," depth=",round(EC_buoys$Depth_m[i])," [",round(EC_buoys$CCHaPSdept[i]),"m]"),ylim = c(1,9))
+  #try(plot_empirical(CCHaPS_am2[,i],add=TRUE,col="blue"))
+
+
+  mod_ARI  = -1/log((1:100)/(100 + 1))
+  # convert to AEP (Annual Exceedance Probability)
+  mod_AEP = 1 - exp(-1/mod_ARI)
+  
+  obs_gumbel_RL  = loopevd::qevd_vector(x = obs_gumbel[i, ],  p = 1-mod_AEP, evd_mod_str = "fgumbel")
+  obs_gev_RL  = loopevd::qevd_vector(x = obs_gev[i, ],  p = 1-mod_AEP, evd_mod_str = "fgev")
+  obs_gumbelx_RL = loopevd::qevd_vector(x = obs_gumbelx[i, ], p = 1-mod_AEP, evd_mod_str = "fgumbelx", interval = c(0,12))
+  
+  CCHaPS_gumbel_RL  = loopevd::qevd_vector(x = CCHaPS_gumbel[i, ],  p = 1-mod_AEP, evd_mod_str = "fgumbel")
+  CCHaPS_gev_RL     = loopevd::qevd_vector(x = CCHaPS_gev[i, ],  p = 1-mod_AEP, evd_mod_str = "fgev")
+  CCHaPS_gumbelx_RL = loopevd::qevd_vector(x = CCHaPS_gumbelx[i, ], p = 1-mod_AEP, evd_mod_str = "fgumbelx", interval = c(0,12))
+  
+  lines(mod_ARI,obs_gumbel_RL,lty=3,col="black")
+  lines(mod_ARI,obs_gev_RL,lty=2,col="black")
+  lines(mod_ARI,obs_gumbelx_RL,lty=1,col="black")
+  
+  #lines(mod_ARI,CCHaPS_gumbel_RL,lty=3,col="blue")
+  #lines(mod_ARI,CCHaPS_gev_RL,lty=2,col="blue")
+  #lines(mod_ARI,CCHaPS_gumbelx_RL,lty=1,col="blue")
+  return(max(obs_gev_RL))
+}
+i = 1
+par(mfrow = c(5,3),las=1,mar = c(2,4.5,2,1)+0.1)
+plot(1,1,col = NA,axes=FALSE,xlab = "",ylab = ""); 
+legend("topleft",c("Gumbel","GEV","Mixed Gumbel"),col = "black",lty = 3:1)
+
+for(i in 1:14) plot_EVD(i)
+ 
+
+```
+```{r, fig.width=10, fig.height=6}
+par(mfrow = c(2,2),las=1,mar = c(2,4.5,2,1)+0.1)
+plot(1,1,col = NA,axes=FALSE,xlab = "",ylab = ""); 
+legend("topleft",c("Gumbel","GEV","Mixed Gumbel"),col = "black",lty = 3:1)
+
+rl100 = 1:3
+for(i in c(1,3,11)) rl100[i] = plot_EVD(i)
+
+```
+
+```{r non stationary}
+obs_gumbelns = as.data.frame(t(sapply(1:nlocs,
+                  function(x) loopevd::evd_params(EC_am2[,x][!is.na(EC_am2[,x])],
+                  evd_mod_str = "fgumbel",
+                  nsloc = data.frame(year = years[!is.na(EC_am2[,x])])))))
+
+CCHaPS_gumbelns = as.data.frame(t(sapply(1:nlocs,
+                  function(x) loopevd::evd_params(CCHaPS_am2[,x][!is.na(CCHaPS_am2[,x])],
+                  evd_mod_str = "fgumbel",
+                  nsloc = data.frame(year = years_CCHaPS[!is.na(CCHaPS_am2[,x])])))))
+
+WHACS_gumbelns = as.data.frame(t(sapply(1:nlocs,
+                  function(x) loopevd::evd_params(WHACS_am2[,x][!is.na(WHACS_am2[,x])],
+                  evd_mod_str = "fgumbel",
+                  nsloc = data.frame(year = years_WHACS[!is.na(WHACS_am2[,x])])))))
+
+obs_nsAIC = apply(cbind(obs_gumbel$AIC,obs_gumbelns$AIC),1,which.min)
+CCHaPS_nsAIC = apply(cbind(CCHaPS_gumbel$AIC,CCHaPS_gumbelns$AIC),1,which.min)
+WHACS_nsAIC = apply(cbind(WHACS_gumbel$AIC,WHACS_gumbelns$AIC),1,which.min)
+
+nsevds = c("","*")
+
+data.frame(location = usenames,
+           Buoy = paste(round(obs_gumbelns$locyear/obs_gumbelns$Scaled_year,3)*20, nsevds[obs_nsAIC]),
+           CCHaPS = paste(round(CCHaPS_gumbelns$locyear/CCHaPS_gumbelns$Scaled_year,3)*20, nsevds[CCHaPS_nsAIC]),
+           WHACS = paste(round(WHACS_gumbelns$locyear/WHACS_gumbelns$Scaled_year,3)*20, nsevds[WHACS_nsAIC]))
+
+
+```
+
+
+
+```{r trend table}
+data.frame(location = usenames,
+           Buoy = paste(round(exp(obs_gumbelns$locyear/obs_gumbelns$Scaled_year*20/obs_gumbelns$scale),2), nsevds[obs_nsAIC]),
+           CCHaPS = paste(round(exp(CCHaPS_gumbelns$locyear/CCHaPS_gumbelns$Scaled_year*20/CCHaPS_gumbelns$scale),2), nsevds[CCHaPS_nsAIC]),
+           WHACS = paste(round(exp(WHACS_gumbelns$locyear/WHACS_gumbelns$Scaled_year*20/WHACS_gumbelns$scale),2), nsevds[WHACS_nsAIC]))
+
+
+```
+```{r time series plots, fig.width=12, fig.height=10}
+i = 1
+par(mfrow = c(5,3),las=1,mar = c(2,4.5,2,1)+0.1)
+plot(1,1,col = NA,axes=FALSE,xlab = "",ylab = ""); legend("topleft",c("Buoy","CCHaPS","WHACS"),col = c("black","blue","red"),lty = 1)
+yrs = 1980:2020
+for(i in 1:14){
+  x = EC_am2[,i]
+  x = x[!is.na(x)]
+  plot(years_WHACS,WHACS_am2[,i],type = "l",ylab ="", main = paste0(EC_buoys$shortName[i]," n=",length(x)," depth=",round(EC_buoys$Depth_m[i])," [",round(EC_buoys$CCHaPSdept[i]),"m]"),ylim = c(1,9),col = "red");grid()
+  lines(years_CCHaPS,CCHaPS_am2[,i],col="blue")
+  lines(years,EC_am2[,i],col = "black",lwd=2)
+}
+
+```
+
+```{r tend plots, fig.width=12, fig.height=10}
+i = 1
+par(mfrow = c(5,3),las=1,mar = c(2,4.5,2,1)+0.1)
+plot(1,1,col = NA,axes=FALSE,xlab = "",ylab = ""); legend("topleft",c("Buoy","CCHaPS","WHACS"),col = c("black","blue","red"),lty = 1)
+yrs = 1980:2020
+for(i in 1:14){
+  x = EC_am2[,i]
+  x = x[!is.na(x)]
+  plot(years_WHACS,WHACS_am2[,i],type = "l",ylab ="", main = paste0(EC_buoys$shortName[i]," n=",length(x)," depth=",round(EC_buoys$Depth_m[i])," [",round(EC_buoys$CCHaPSdept[i]),"m]"),ylim = c(1,9),col = "red");grid()
+  lines(years_CCHaPS,CCHaPS_am2[,i],col="blue")
+  lines(years,EC_am2[,i],col = "black",lwd=2)
+  lines(yrs,obs_gumbelns$loc[i]+obs_gumbelns$locyear[i]*(yrs - obs_gumbelns$Centred_year[i])/obs_gumbelns$Scaled_year[i],lty=2)
+  lines(yrs,CCHaPS_gumbelns$loc[i]+CCHaPS_gumbelns$locyear[i]*(yrs -  CCHaPS_gumbelns$Centred_year[i])/CCHaPS_gumbelns$Scaled_year[i],lty=2,col="blue")
+}
+
+```
+
+
+
+```{r GEV pars val, fig.width=6, fig.height=6}
+par(mfrow = c(2,2),las=1,mar = c(5,4,1,1))
+plot(obs_gev$loc,CCHaPS_gev$loc,col = "blue",xlab = "Obs GEV location",ylab = "Mod  GEV location",asp=1);abline(a=0,b=1);grid()
+points(obs_gev$loc,WHACS_gev$loc,col = "red")
+plot(obs_gev$scale,CCHaPS_gev$scale,col = "blue",xlab = "Obs GEV scale",ylab = "Mod GEV scale",asp=1);abline(a=0,b=1);grid()
+points(obs_gev$scale,WHACS_gev$scale,col = "red")
+plot(obs_gev$shape,CCHaPS_gev$shape,col = "blue",xlab = "Obs GEV shape",ylab = "Mod GEV shape",asp=1);abline(a=0,b=1);grid()
+points(obs_gev$shape,WHACS_gev$shape,col = "red")
+
+```
+
