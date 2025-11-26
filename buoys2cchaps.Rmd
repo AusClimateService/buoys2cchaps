@@ -1,20 +1,81 @@
 ---
 title: "From Buoys to CCHaPS: Tracking the 40 Year trend of Extreme Waves on Australia’s East Coast"
 output: html_document
-date: "2025-11-17"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Analysis
+## Introduction
 
-This is the workflow for data presented at [4th Wind Wave Symposium in Perth 2025](https://www.windwavessymposium.org/)
+This page documents the workflow behind the [“From Buoys to CCHaPS: Tracking the 40-year trend of extreme waves on Australia’s east coast”](OGradyetal.pdf) analysis prepared for the [4th Wind Wave Symposium in Perth 2025](https://www.windwavessymposium.org/). It links long-term hourly wave observations from the Queensland and New South Wales coastal buoy networks with the Australian Climate Service wave hindcasts WHACS and CCHaPS to examine how extreme significant wave heights have behaved from the mid-1980s through to 2024.
+
+The main objectives are to (i) derive consistent estimates of average recurrence intervals (ARIs) and 100-year significant wave heights from the buoy records, (ii) compare these with extremes simulated by WHACS and CCHaPS at co-located grid points, and (iii) assess whether mixed-climate behaviour associated with tropical-cyclone and non-tropical-cyclone events can be detected in both observations and model hindcasts. Extreme value analyses are carried out using peaks-over-threshold and annual-maximum approaches, fitting standard Gumbel and GEV models alongside a mixed-climate “two-Gumbel” model implemented in the `{loopevd}` [R package](https://cran.r-project.org/web/packages/loopevd/index.html).
+
+We also explore non-stationary trends in extremes by allowing the Gumbel location parameter to vary with time, summarising results as 20-year changes in 100-year Hs and associated multiplication factors in annual exceedance probability (AEP). The code below reproduces the key figures and tables used in the symposium talk and provides a reproducible template for extending the analysis to other sites, time periods, or wave model products.  
+  
+Previous extreme value analysis for NSW wave buoys is explained in a technical report by [Baird](https://www.environment.nsw.gov.au/publications/nsw-nearshore-wave-tool-update-offshore-wave-height-extreme-value-analysis). To our knowledge, no such analysis has been done for all of the QLD buoys.
+
+## Data sources
+
+### New South Wales wave buoys (MHL)
+
+New South Wales wave data are provided by [Manly Hydraulics Laboratory (MHL)](https://mhl.nsw.gov.au/) on behalf of the NSW Government, through the long-term offshore Waverider buoy network and associated reporting program (for example the [NSW Offshore Wave Heights dataset](https://data.nsw.gov.au/data/dataset/nsw-offshore-wave-heights) and annual wave-climate summaries). The analysis here uses **hourly significant wave height (Hs)** time series from the offshore buoys, following the configuration described in the Baird report on NSW offshore wave climate and the NSW Nearshore Wave Tool update. In line with that work, we take a consistent **hourly data window starting in 1985** for the NSW sites used in this notebook.
+
+The station metadata and tables in the accompanying presentation and report show that the underlying buoy archives are often **longer than 1985**, with some sites having earlier, non-hourly or intermittent records. Those earlier segments are not used in the extreme-value analysis here: we restrict to the continuous hourly records from 1985 onwards so that the NSW buoys are treated consistently in time and can be cleanly compared with the WHACS and CCHaPS hindcasts.
+
+We rely entirely on the quality control and processing carried out by MHL and documented in their data products and reports; no additional QA/QC is applied in this notebook.
+
+
+### Queensland wave buoys (Queensland Government)
+
+Queensland wave data are sourced from the offshore buoy network operated by the [Queensland Government](https://www.qld.gov.au/environment/coasts-waterways/beach/monitoring/waves) as part of the [Coastal Data System – historical wave data](https://www.data.qld.gov.au/dataset/coastal-data-system-historical-wave-data) and related [wave climate annual summary reports](https://www.publications.qld.gov.au/dataset/wave-data-recording-program). We use the processed **hourly Hs** records from the selected offshore Waverider sites, taking a consistent **hourly data window starting in 1995**, as documented in the Queensland Government wave-climate report referenced in the slides.
+
+As with NSW, the metadata tables and original reports make clear that some Queensland buoys have **records extending back before 1995** (for example, shorter bursts or earlier deployments at the same location). For the purposes of this analysis we only use the continuous hourly records from 1995 onwards, both to match the period used in the Queensland wave-climate assessment and to maintain a common baseline when comparing with model hindcasts.
+
+Again, we work directly with the custodians’ processed hourly time series and do not perform any extra QA/QC beyond what is built into the official Queensland Government products.
+
+### Data used in this notebook
+
+The code in this notebook:
+
+- reads the hourly Hs time series for the chosen NSW (MHL) and Queensland (QGov) buoys over the **1985–present** (NSW) and **1995–present** (Qld) analysis windows,
+- extracts annual maxima and peaks-over-threshold samples from these hourly series, and
+- passes those samples into the extreme-value models used in the “Buoys to CCHaPS” presentation.
+
+All **site choices, record lengths and start dates** for the hourly data follow the configuration given in the Baird NSW report and the Queensland Government wave-climate reports, and are summarised in the tables in the slides and in the linked documentation above.
+
+### Model data extraction at buoy locations
+
+For each buoy site, model time series were taken from the **nearest model grid point** to the buoy coordinates.
+
+For the **Coupled Coastal Hazard Prediction System (CCHaPS) Hindcast for Australia**  
+([CSIRO Data Access Portal, collection `csiro:65669`](https://data.csiro.au/collection/csiro:65669)), we use the native unstructured SCHISM–WWM mesh. CCHaPS is a 2D hydrodynamic–wave model run on a triangular grid with more than 1.4 million coastal nodes, and provides hourly water levels, depth-averaged currents and wave variables at each node.:contentReference[oaicite:0]{index=0}  
+For each buoy we:
+
+- take the nominal buoy latitude–longitude from the MHL / Queensland Government metadata;  
+- search the full CCHaPS node list and identify the **nearest wet node** by great-circle distance; and  
+- extract the full model significant wave height (Hs) time series at that node over the buoy analysis window.
+
+No additional spatial interpolation is applied: all CCHaPS–buoy comparisons use the raw Hs from this single nearest model node.
+
+For the **WHACS: Wave Hindcast for the Australian Climate Service**  
+([DOI: 10.25919/83kj-kp95](https://doi.org/10.25919/83kj-kp95)), we use the native WaveWatch III spherical multi-cell (SMC) grid. WHACS is a global wave hindcast running from 1979 to near-present, with coastal resolutions of order 6–7 km in shelf regions and coarser resolution offshore, and archives bulk and spectral wave parameters at sub-daily (3-hourly) time steps for extremes analysis.:contentReference[oaicite:1]{index=1}  
+For each buoy we:
+
+- locate the nearest WHACS SMC grid cell centre to the buoy position;  
+- ensure this grid point is ocean-covered (wet cell); and  
+- extract the model Hs time series from that single nearest grid point over the same calendar period used for the buoy (1985–present for NSW, 1995–present for Queensland).
+
+As with CCHaPS, we do **not** perform spatial averaging or interpolation between WHACS grid points; instead we use a simple nearest-neighbour approach so that extremes are compared between the buoy and a single, clearly defined model location. The extracted CCHaPS and WHACS Hs series are then treated in exactly the same way as the buoy series (annual maxima and peaks-over-threshold) in the subsequent extreme-value analysis.
+
+Below is the R code explaining the analysis and results. 
 
 ```{r packages}
-require(terra)
-require(loopevd)
+suppressPackageStartupMessages(require(terra))
+suppressPackageStartupMessages(require(loopevd))
 ```
 
 
@@ -67,7 +128,7 @@ text(EC_buoys,"shortName",pos=1:4)
 
 
 ```
-
+Figure 1. Locations of the 14 long-term East Coast offshore wave buoys used in this analysis (blue points), shown relative to the wider Australian buoy network (grey) and coastline. Labelled sites run from Cairns in the north to Eden in the south and are used to compare observed extremes with CCHaPS and WHACS model hindcasts.
 
 ```{r}
 plot_empirical <- function (x, xns = NULL, unitz = "-", add=FALSE,...) 
@@ -101,6 +162,7 @@ for(i in 1:14){
 
 
 ```
+Figure 2. Empirical return-interval plots of annual maximum significant wave height (Hs) at each buoy site, comparing observations (black) with co-located CCHaPS (blue) and WHACS (red) hindcast grid points. The x-axis shows average recurrence interval on a logarithmic scale; the y-axis shows annual maximum Hs, with panels ordered from north to south along the coast.
 
 ```{r stationary EVD}
 nlocs = ncol(EC_am2)
@@ -138,6 +200,7 @@ data.frame(location = usenames,Buoy = paste(signs[obs_ss],evds[obs_ACS]),
            WHACS = paste(signs[WHACS_ss],evds[WHACS_ACS]))
 
 ```
+Table 1. Preferred stationary extreme value model for annual maximum Hs at each East Coast buoy site, for observations, CCHaPS and WHACS. Entries indicate whether a Gumbel, GEV or mixed-climate two-Gumbel model (“Mixed Gumbel”) gives the lowest AIC, and the sign of the GEV shape parameter (−, 0, +) where applicable.
 
 ```{r parametric ARI, fig.width=12, fig.height=10}
 
@@ -178,6 +241,8 @@ for(i in 1:14) plot_EVD(i)
  
 
 ```
+Figure 3. Fitted stationary extreme value models for annual maximum Hs at each buoy site. Points show the empirical annual maxima, and black lines show Gumbel (dotted), GEV (dashed) and mixed-climate two-Gumbel (solid) return-level curves as a function of average recurrence interval, illustrating how well each model represents the upper tail at each location.
+
 ```{r, fig.width=10, fig.height=6}
 par(mfrow = c(2,2),las=1,mar = c(2,4.5,2,1)+0.1)
 plot(1,1,col = NA,axes=FALSE,xlab = "",ylab = ""); 
@@ -187,6 +252,7 @@ rl100 = 1:3
 for(i in c(1,3,11)) rl100[i] = plot_EVD(i)
 
 ```
+Figure 4. Example return-level plots for three representative buoy sites (Cairns, Mackay and Sydney). As in Figure 3, points show empirical annual maxima and lines show fitted Gumbel, GEV and mixed-climate two-Gumbel curves, highlighting differences in tail behaviour between tropical (Cairns, Mackay) and mid-latitude (Sydney) locations.
 
 ```{r non stationary}
 obs_gumbelns = as.data.frame(t(sapply(1:nlocs,
@@ -218,7 +284,7 @@ data.frame(location = usenames,
 
 ```
 
-
+Table 2. Linear trend in the Gumbel location parameter for annual maximum Hs over a 20-year period at each site, for buoys, CCHaPS and WHACS. Values (in metres per 20 years) represent the change in the fitted Gumbel location between the start and end of a 20-year window; an asterisk marks sites where a non-stationary Gumbel model (time-varying location) is preferred over a stationary Gumbel based on AIC.
 
 ```{r trend table}
 data.frame(location = usenames,
@@ -228,6 +294,9 @@ data.frame(location = usenames,
 
 
 ```
+
+Table 3. Approximate multiplicative change in 100-year significant wave height over a 20-year period, inferred from the non-stationary Gumbel fits for buoys, CCHaPS and WHACS. Values greater than 1 indicate an increase in 100-year Hs over 20 years, while values less than 1 indicate a decrease; asterisks again denote sites where the non-stationary model is preferred.
+
 ```{r time series plots, fig.width=12, fig.height=10}
 i = 1
 par(mfrow = c(5,3),las=1,mar = c(2,4.5,2,1)+0.1)
@@ -242,6 +311,7 @@ for(i in 1:14){
 }
 
 ```
+Figure 5. Time series of annual maximum Hs at each East Coast site from buoy observations (black), CCHaPS (blue) and WHACS (red). Each panel shows the annual maxima from 1985–2024 for New South Wales sites and from 1995–2024 for Queensland sites, illustrating how well each hindcast reproduces the year-to-year variability and clustering of extreme wave heights.
 
 ```{r tend plots, fig.width=12, fig.height=10}
 i = 1
@@ -259,7 +329,7 @@ for(i in 1:14){
 }
 
 ```
-
+Figure 6. As in Figure 5, but with dashed lines showing the fitted non-stationary Gumbel location parameter through time for the buoys (black) and CCHaPS (blue). These trend lines summarise gradual changes in the typical annual maximum Hs at each site and highlight locations where both observations and CCHaPS suggest strengthening extremes.
 
 
 ```{r GEV pars val, fig.width=6, fig.height=6}
@@ -272,4 +342,17 @@ plot(obs_gev$shape,CCHaPS_gev$shape,col = "blue",xlab = "Obs GEV shape",ylab = "
 points(obs_gev$shape,WHACS_gev$shape,col = "red")
 
 ```
+Figure 7. Comparison of GEV parameter estimates for CCHaPS (blue) and WHACS (red) against buoy-based estimates across all sites: (top left) location, (top right) scale and (bottom left) shape parameters. Points show individual sites and the 1:1 line indicates perfect agreement, allowing visual assessment of how closely each hindcast reproduces the observed GEV extreme value structure.
+
+### Further reading on wave climate trends
+
+For readers interested in placing these results in a broader context, two recent studies are particularly relevant. Dong et al. (2025) present a long-term, high-resolution wave hindcast for the entire Australian coast on an unstructured WAVEWATCH III grid, providing a detailed picture of how mean and extreme wave conditions have evolved around Australia and how they vary between regions. Casas-Prat et al. (2024) review global evidence for changes in the wind-wave climate from observations, hindcasts and climate projections, with a strong focus on how shifts in mean, high-percentile and extreme wave heights interact with storm surges and sea-level rise to influence coastal hazards. Together, these studies offer a useful backdrop for interpreting the buoy–hindcast comparisons and extreme-wave trends explored here.
+
+### Contact
+
+If you have questions about this analysis, would like access to additional figures or code, or are interested in collaborating on related extreme wave or coastal hazard work, please get in touch:
+
+Julian O’Grady  
+CSIRO Environment – Sea Level, Waves & Remote Sensing Team  
+Email: [julian.ogrady@csiro.au](mailto:julian.ogrady@csiro.au)
 
